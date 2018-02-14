@@ -10,12 +10,13 @@ for easier code tracking and sharing.
   - FYI in Bitnami we use it to drive a prometheus "federated" setup,
     where we add a `cluster` to scraped prometheis
     [external_labels](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#<scrape_config>)
-* the dashboards are linked together, so that you can navigate them as:
 
+* the dashboards are linked together, so that you can navigate them as:
+~~~~
   k8s_resource_usage_cluster -> (click up-right) ->
     k8s_resource_usage_namespace -> (select namespace, click up-right) ->
       k8s_resource_usage_namespace_pods
-
+~~~~
 ## Prometheus setup
 
 We try to follow latest upstream prometheus, using `prometheus-2.0.1`
