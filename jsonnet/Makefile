@@ -1,4 +1,4 @@
-TARGETS=$(patsubst %.jsonnet, %.json, $(wildcard *.jsonnet))
+TARGETS=$(patsubst %.jsonnet, %.json, $(wildcard dash*.jsonnet))
 
 all: $(TARGETS)
 
