@@ -1,12 +1,12 @@
 SHELL=/bin/bash
 TARGETS=$(patsubst %.jsonnet, %.json, $(wildcard dash*.jsonnet))
 ALL_JSONNET=$(wildcard *.jsonnet)
-PHONY_GOLDEN=$(patsubst %.jsonnet,golden/%.json,$(ALL_JSONNET))
+PHONY_GOLDEN=$(patsubst %.jsonnet,generated/%.json,$(ALL_JSONNET))
 PHONY_DIFF=$(patsubst %.jsonnet,%.diff,$(ALL_JSONNET))
 
 all: $(TARGETS)
 
-test: test-fmt golden-diff
+test: test-fmt generated-diff
 
 test-fmt:
 	jsonnet fmt --test $(ALL_JSONNET)
@@ -16,14 +16,14 @@ clean:
 %.json: %.jsonnet
 	jsonnet $(^) > $(@).tmp && mv $(@).tmp $(@) || rm -f $(@).tmp
 
-golden-diff: $(PHONY_DIFF)
+generated-diff: $(PHONY_DIFF)
 
 %.diff: %.jsonnet
-	diff -u golden/$(*).json <(jsonnet $(<))
+	diff -u generated/$(*).json <(jsonnet $(<))
 
-golden/%.json: %.jsonnet
+generated/%.json: %.jsonnet
 	jsonnet $(<) > $(@)
 
-gen-golden: $(PHONY_GOLDEN)
+generate: $(PHONY_GOLDEN)
 
-.PRECIOUS: %.jsonnet golden/%.json
+.PRECIOUS: %.jsonnet generated/%.json
