@@ -1,0 +1,51 @@
+{
+   "rows": [
+      {
+         "panels": [
+            {
+               "formula": "sum by (verb, code)(\n    rate(apiserver_request_count{verb!~\"$verb_excl\", code=~\"5..\"}[5m])\n    ) / ignoring(code) group_left\nsum by (verb)(\n    rate(apiserver_request_count[5m])\n    )\n",
+               "legend": "{{ verb }} - {{ code }}",
+               "threshold": 0.01,
+               "title": "API Error ratio 500s/total (except $verb_excl)"
+            }
+         ],
+         "title": "API Error rate"
+      },
+      {
+         "panels": [
+            {
+               "formula": "histogram_quantile (\n    0.$api_percentile,\n    sum by (le, verb)(\n      rate(apiserver_request_latencies_bucket{verb!~\"$verb_excl\"}[5m])\n      )\n    ) / 1e3 > 0\n",
+               "legend": "{{ verb }}",
+               "threshold": 200,
+               "title": "API $api_percentile-th latency[ms] by verb (except $verb_excl)"
+            }
+         ],
+         "title": "API Latency"
+      },
+      {
+         "panels": [
+            {
+               "formula": "sum by (operation, instance)(\n  rate(etcd_request_latencies_summary{job=\"kubernetes_apiservers\",quantile=\"0.9\"}[5m]) < Inf\n)/ 1e3\n",
+               "legend": "{{ instance }} - {{ operation }}",
+               "threshold": 20,
+               "title": "etcd 90th latency[ms] by (operation, instance)"
+            }
+         ],
+         "title": "etcd Latency"
+      }
+   ],
+   "templates_custom": [
+      {
+         "default": "90",
+         "hide": "",
+         "name": "api_percentile",
+         "values": "50, 90, 99"
+      },
+      {
+         "default": "(CONNECT|WATCH)",
+         "hide": "variable",
+         "name": "verb_excl",
+         "values": "(CONNECT|WATCH)"
+      }
+   ]
+}
