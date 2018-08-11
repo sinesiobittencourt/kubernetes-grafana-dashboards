@@ -3,7 +3,7 @@ local template = grafana.template;
 local row = grafana.row;
 local bitgraf = import 'bitnami_grafana.libsonnet';
 
-local spec = (import "spec-kubeapi.jsonnet");
+local spec = (import 'spec-kubeapi.jsonnet');
 
 bitgraf.dash.new(
   'SLA: Kubernetes API',
@@ -11,16 +11,17 @@ bitgraf.dash.new(
 )
 .addRows([
   row.new(height='250px', title=x.title)
-  .addPanel(
-    bitgraf.panel.new(x.panel_title)
+  .addPanels([
+    bitgraf.panel.new(p.title)
     .addTarget(
-      bitgraf.prom(x.formula, x.graf_legend)
-    ) { thresholds: [bitgraf.threshold_gt(x.threshold)] }
-  )
+      bitgraf.prom(p.formula, p.legend)
+    ) { thresholds: [bitgraf.threshold_gt(p.threshold)] }
+    for p in x.panels
+  ])
   for x in spec.rows
 ]) {
   templates+: [
     template.custom(x.name, x.values, x.default, hide=x.hide)
     for x in spec.templates_custom
-  ]
+  ],
 }
