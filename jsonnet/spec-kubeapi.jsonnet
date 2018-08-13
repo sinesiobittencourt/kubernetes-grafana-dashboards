@@ -15,7 +15,7 @@
   ],
   rows: [
     {
-      title: 'API Error rate',
+      title: 'Kube API',
       panels: [
         {
           title: 'API Error ratio 500s/total (except $verb_excl)',
@@ -30,11 +30,6 @@
           legend: '{{ verb }} - {{ code }}',
           threshold: 0.01,
         },
-      ],
-    },
-    {
-      title: 'API Latency',
-      panels: [
         {
           title: 'API $api_percentile-th latency[ms] by verb (except $verb_excl)',
           formula: |||
@@ -51,7 +46,22 @@
       ],
     },
     {
-      title: 'etcd Latency',
+      title: 'Kube Controller',
+      panels: [
+        {
+          title: '',
+          formula: |||
+            sum by (instance)(
+              APIServiceRegistrationController_work_duration{quantile="0.9"}
+            )
+          |||,
+          legend: '{{ instance }}',
+          threshold: 100,
+        },
+      ],
+    },
+    {
+      title: 'etcd',
       panels: [
         {
           title: 'etcd 90th latency[ms] by (operation, instance)',
@@ -64,7 +74,6 @@
           threshold: 20,
         },
       ],
-
     },
   ],
 }
