@@ -1,29 +1,43 @@
 SHELL=/bin/bash
-TARGETS=$(patsubst %.jsonnet, %.json, $(wildcard dash*.jsonnet))
+OUT_GRAFANA=out/grafana
+OUT_PROMETHEUS=out/prometheus
+DASH_TARGETS=$(patsubst %.jsonnet, $(OUT_GRAFANA)/%.json, $(wildcard dash*.jsonnet))
+ALERT_TARGETS=$(patsubst %.jsonnet, $(OUT_PROMETHEUS)/%.rules.yaml, $(wildcard alert*.jsonnet))
+
 ALL_JSONNET=$(wildcard *.jsonnet)
-PHONY_GOLDEN=$(patsubst %.jsonnet,generated/%.json,$(ALL_JSONNET))
+
+PHONY_GOLDEN=$(patsubst %.jsonnet,golden/%.json,$(ALL_JSONNET))
 PHONY_DIFF=$(patsubst %.jsonnet,%.diff,$(ALL_JSONNET))
 
-all: $(TARGETS)
+all: $(DASH_TARGETS) $(ALERT_TARGETS)
 
-test: test-fmt generated-diff
+test: test-fmt golden-diff
 
 test-fmt:
 	jsonnet fmt --test $(ALL_JSONNET)
-clean:
-	rm -f $(TARGETS)
 
-%.json: %.jsonnet
+fix-fmt:
+	for i in $(ALL_JSONNET); do jsonnet fmt -i $$i;done
+
+clean:
+	rm -f $(DASH_TARGETS) $(ALERT_TARGETS)
+
+$(OUT_PROMETHEUS)/%.rules.yaml: $(OUT_PROMETHEUS)/%.json
+	@mkdir -p out/prometheus
+	python -c 'import sys, yaml, json; yaml.safe_dump(json.load(sys.stdin), sys.stdout, default_flow_style=False)' < $(^) > $(@)
+
+$(OUT_PROMETHEUS)/%.json $(OUT_GRAFANA)/%.json: %.jsonnet
+	@mkdir -p out/grafana out/prometheus
 	jsonnet $(^) > $(@).tmp && mv $(@).tmp $(@) || rm -f $(@).tmp
 
-generated-diff: $(PHONY_DIFF)
+golden-diff: $(PHONY_DIFF)
 
 %.diff: %.jsonnet
-	diff -u generated/$(*).json <(jsonnet $(<))
+	diff -u golden/$(*).json <(jsonnet $(<))
 
-generated/%.json: %.jsonnet
+golden/%.json: %.jsonnet
 	jsonnet $(<) > $(@)
 
-generate: $(PHONY_GOLDEN)
+gen-golden: $(PHONY_GOLDEN)
 
-.PRECIOUS: %.jsonnet generated/%.json
+.PRECIOUS: %.jsonnet golden/%.json gen-golden
