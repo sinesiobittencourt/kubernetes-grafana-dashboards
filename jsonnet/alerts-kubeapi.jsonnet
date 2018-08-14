@@ -12,31 +12,23 @@ local cleanupWhiteSpace(str) = (
     if x != ''
   ])
 );
+local checks = [
+  spec.metrics[m_key].alerts[a_key]
+  for m_key in std.objectFields(spec.metrics)
+  for a_key in std.objectFields(spec.metrics[m_key].alerts)
+];
 
 {
-  // Pre-process row->panel fields to create `checks` for easier
-  // referencing from `rules`
-  checks:: [
-    {
-      formula: panel.formula,
-      alert: panel.alert,
-      alert_expr: panel.alert_expr,
-      threshold: panel.threshold,
-      annotations: panel.annotations,
-    }
-    for row in spec.rows
-    for panel in row.panels
-  ],
   // Emited `rules` as needed by prometheus alert entries
   rules:: [
     {
-      alert: check.alert,
-      expr: cleanupWhiteSpace(check.alert_expr),
+      alert: check.name,
+      expr: cleanupWhiteSpace(check.expr),
       'for': ALERTS_FOR,
       labels: ALERTS_LABELS,
       annotations: check.annotations,
     }
-    for check in $.checks
+    for check in checks
   ],
   // See https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/
   groups: [
