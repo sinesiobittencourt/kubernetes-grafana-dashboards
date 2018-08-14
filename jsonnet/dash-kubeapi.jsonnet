@@ -5,6 +5,18 @@ local bitgraf = import 'bitnami_grafana.libsonnet';
 
 local spec = (import 'spec-kubeapi.jsonnet');
 
+local rows = [
+  {
+    local m = spec.metrics[m_key],
+    title: m.name,
+    panels: [
+      m.graphs[g_key]
+      for g_key in std.objectFields(m.graphs)
+    ],
+  }
+  for m_key in std.objectFields(spec.metrics)
+];
+
 bitgraf.dash.new(
   'SLA: Kubernetes API',
   tags=['k8s', 'api', 'sla']
@@ -18,9 +30,9 @@ bitgraf.dash.new(
     ) { thresholds: [bitgraf.threshold_gt(p.threshold)] }
     for p in x.panels
   ])
-  for x in spec.rows
+  for x in rows
 ]) {
-  local t = spec.templates_custom,
+  local t = spec.grafana.templates_custom,
   templates+: [
     template.custom(x, t[x].values, t[x].default, hide=t[x].hide)
     for x in std.objectFields(t)
