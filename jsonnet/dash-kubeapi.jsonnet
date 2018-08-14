@@ -20,8 +20,9 @@ bitgraf.dash.new(
   ])
   for x in spec.rows
 ]) {
+  local t = spec.templates_custom,
   templates+: [
-    template.custom(x.name, x.values, x.default, hide=x.hide)
-    for x in spec.templates_custom
+    template.custom(x, t[x].values, t[x].default, hide=t[x].hide)
+    for x in std.objectFields(t)
   ],
 }

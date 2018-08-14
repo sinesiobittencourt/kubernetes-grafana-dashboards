@@ -53,7 +53,7 @@
                "targets": [
                   {
                      "datasource": "$datasource",
-                     "expr": "sum by (verb, code)(\n    rate(apiserver_request_count{verb!~\"$verb_excl\", code=~\"5..\"}[5m])\n    ) / ignoring(code) group_left\nsum by (verb)(\n    rate(apiserver_request_count[5m])\n    )\n",
+                     "expr": "sum by (verb, code)(\n  rate(apiserver_request_count{verb!~\"$verb_excl\", code=~\"5..\"}[5m])\n) / ignoring(code) group_left\nsum by (verb)(\n  rate(apiserver_request_count[5m])\n)\n",
                      "format": "time_series",
                      "intervalFactor": 2,
                      "legendFormat": "{{ verb }} - {{ code }}",
@@ -103,21 +103,7 @@
                      "show": true
                   }
                ]
-            }
-         ],
-         "repeat": null,
-         "repeatIteration": null,
-         "repeatRowId": null,
-         "showTitle": true,
-         "title": "API Error rate",
-         "titleSize": "h6",
-         "type": "row"
-      },
-      {
-         "collapse": false,
-         "collapsed": false,
-         "height": "250px",
-         "panels": [
+            },
             {
                "aliasColors": { },
                "bars": false,
@@ -156,7 +142,7 @@
                "targets": [
                   {
                      "datasource": "$datasource",
-                     "expr": "histogram_quantile (\n    0.$api_percentile,\n    sum by (le, verb)(\n      rate(apiserver_request_latencies_bucket{verb!~\"$verb_excl\"}[5m])\n      )\n    ) / 1e3 > 0\n",
+                     "expr": "histogram_quantile (\n  0.$api_percentile,\n  sum by (le, verb)(\n    rate(apiserver_request_latencies_bucket{verb!~\"$verb_excl\"}[5m])\n  )\n) / 1e3 > 0\n",
                      "format": "time_series",
                      "intervalFactor": 2,
                      "legendFormat": "{{ verb }}",
@@ -212,7 +198,7 @@
          "repeatIteration": null,
          "repeatRowId": null,
          "showTitle": true,
-         "title": "API Latency",
+         "title": "Kube API",
          "titleSize": "h6",
          "type": "row"
       },
@@ -259,7 +245,110 @@
                "targets": [
                   {
                      "datasource": "$datasource",
-                     "expr": "sum by (operation, instance)(\n  rate(etcd_request_latencies_summary{job=\"kubernetes_apiservers\",quantile=\"0.9\"}[5m]) < Inf\n)/ 1e3\n",
+                     "expr": "sum by (instance)(\n  APIServiceRegistrationController_work_duration{quantile=\"0.9\"}\n)\n",
+                     "format": "time_series",
+                     "intervalFactor": 2,
+                     "legendFormat": "{{ instance }}",
+                     "refId": "A"
+                  }
+               ],
+               "thresholds": [
+                  {
+                     "colorMode": "critical",
+                     "fill": true,
+                     "line": true,
+                     "op": "gt",
+                     "value": 100
+                  }
+               ],
+               "timeFrom": null,
+               "timeShift": null,
+               "title": "",
+               "tooltip": {
+                  "shared": true,
+                  "sort": 0,
+                  "value_type": "individual"
+               },
+               "type": "graph",
+               "xaxis": {
+                  "buckets": null,
+                  "mode": "time",
+                  "name": null,
+                  "show": true,
+                  "values": [ ]
+               },
+               "yaxes": [
+                  {
+                     "format": "short",
+                     "label": null,
+                     "logBase": 1,
+                     "max": null,
+                     "min": null,
+                     "show": true
+                  },
+                  {
+                     "format": "short",
+                     "label": null,
+                     "logBase": 1,
+                     "max": null,
+                     "min": null,
+                     "show": true
+                  }
+               ]
+            }
+         ],
+         "repeat": null,
+         "repeatIteration": null,
+         "repeatRowId": null,
+         "showTitle": true,
+         "title": "Kube Control Manager",
+         "titleSize": "h6",
+         "type": "row"
+      },
+      {
+         "collapse": false,
+         "collapsed": false,
+         "height": "250px",
+         "panels": [
+            {
+               "aliasColors": { },
+               "bars": false,
+               "dashLength": 10,
+               "dashes": false,
+               "datasource": "$datasource",
+               "fill": 1,
+               "id": 5,
+               "legend": {
+                  "alignAsTable": true,
+                  "avg": true,
+                  "current": true,
+                  "max": true,
+                  "min": false,
+                  "rightSide": true,
+                  "show": true,
+                  "sort": "max",
+                  "sortDesc": true,
+                  "total": false,
+                  "values": true
+               },
+               "lines": true,
+               "linewidth": 1,
+               "links": [ ],
+               "nullPointMode": "null",
+               "percentage": false,
+               "pointradius": 5,
+               "points": false,
+               "renderer": "flot",
+               "repeat": null,
+               "seriesOverrides": [ ],
+               "spaceLength": 10,
+               "span": 12,
+               "stack": false,
+               "steppedLine": false,
+               "targets": [
+                  {
+                     "datasource": "$datasource",
+                     "expr": "max by (operation, instance)(\n  rate(etcd_request_latencies_summary{job=\"kubernetes_apiservers\",quantile=\"0.9\"}[5m]) < Inf\n)/ 1e3\n",
                      "format": "time_series",
                      "intervalFactor": 2,
                      "legendFormat": "{{ instance }} - {{ operation }}",
@@ -315,7 +404,7 @@
          "repeatIteration": null,
          "repeatRowId": null,
          "showTitle": true,
-         "title": "etcd Latency",
+         "title": "Kube Etcd",
          "titleSize": "h6",
          "type": "row"
       }
