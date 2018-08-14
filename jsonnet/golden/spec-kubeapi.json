@@ -41,7 +41,7 @@
                "formula": "sum by (instance)(\n  APIServiceRegistrationController_work_duration{quantile=\"0.9\"}\n)\n",
                "legend": "{{ instance }}",
                "threshold": 100,
-               "title": ""
+               "title": "Kube Control Manager work duration"
             }
          ],
          "title": "Kube Control Manager"

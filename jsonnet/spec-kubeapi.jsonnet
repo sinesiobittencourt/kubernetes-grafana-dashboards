@@ -85,7 +85,7 @@
       panels: [
         {
           local this = self,
-          title: '',
+          title: 'Kube Control Manager work duration',
           formula: |||
             sum by (instance)(
               APIServiceRegistrationController_work_duration{quantile="0.9"}
