@@ -1,5 +1,15 @@
 local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi';
 {
+  prometheus: {
+    alerts_common: {
+      labels: {
+        notify_to: 'slack',
+        slack_channel: '#sre-alerts',
+        severity: 'critical',
+      },
+      'for': '5m',
+    },
+  },
   grafana: {
     templates_custom: {
       api_percentile: {
@@ -51,7 +61,7 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
         },
       },
       alerts: {
-        error_ratio: {
+        error_ratio: $.prometheus.alerts_common {
           local alert = self,
           name: 'KubeAPIErrorRatioHigh',
           expr: |||
@@ -70,7 +80,7 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
             ||| % [metric.error_ratio_threshold, runbook_url, alert.name],
           },
         },
-        latency: {
+        latency: $.prometheus.alerts_common {
           local alert = self,
           name: 'KubeAPILatencyHigh',
           expr: |||
@@ -87,6 +97,20 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
               Issue: Kube API Latency on {{ $labels.instance }} is above %s: {{ $value }}
               Playbook: %s#%s
             ||| % [metric.latency_threshold, runbook_url, alert.name],
+          },
+        },
+        blackbox: $.prometheus.alerts_common {
+          local alert = self,
+          name: 'KubeAPIUnHealthy',
+          expr: |||
+            probe_success{provider="kubernetes"} == 0
+          |||,
+          annotations: {
+            summary: 'Kube API is unhealthy',
+            description: |||
+              Issue: Kube API is not responding 200s from blackbox.monitoring
+              Playbook: %s#%s
+            ||| % [runbook_url, alert.name],
           },
         },
       },
@@ -108,7 +132,7 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
         },
       },
       alerts: {
-        work_duration: {
+        work_duration: $.prometheus.alerts_common {
           local alert = self,
           name: 'KubeControllerWorkDurationHigh',
           expr: |||
@@ -143,7 +167,7 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
         },
       },
       alerts: {
-        latency: {
+        latency: $.prometheus.alerts_common {
           local alert = self,
           name: 'KubeEtcdLatencyHigh',
           expr: |||
