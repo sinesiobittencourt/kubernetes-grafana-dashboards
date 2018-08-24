@@ -155,7 +155,7 @@
                "targets": [
                   {
                      "datasource": "$datasource",
-                     "expr": "scalar((sum_over_time(kubernetes::job:slo_kube_api_ok[$availability_span]) / sum_over_time(kubernetes::job:slo_kube_api_sample[$availability_span]) - 0.98999999999999999)) * scalar((time() - timestamp(up{job=\"prometheus\"} offset $availability_span)))\n",
+                     "expr": "scalar((sum_over_time(kubernetes::job:slo_kube_api_ok[$availability_span]) / sum_over_time(kubernetes::job:slo_kube_api_sample[$availability_span]) - 0.98999999999999999)) * \n  scalar((time() - timestamp(up{job=\"prometheus\"} offset $availability_span)))\n",
                      "format": "time_series",
                      "intervalFactor": 2,
                      "legendFormat": "{{ job }}"
