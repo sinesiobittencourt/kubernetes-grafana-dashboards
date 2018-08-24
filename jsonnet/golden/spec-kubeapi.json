@@ -1,5 +1,12 @@
 {
    "grafana": {
+      "common": {
+         "extra": {
+            "legend": {
+               "rightSide": true
+            }
+         }
+      },
       "templates_custom": {
          "api_percentile": {
             "default": "90",
@@ -9,12 +16,12 @@
          "availability_span": {
             "default": "7d",
             "hide": "",
-            "values": "10m,1h,1d,7d,30d,90d"
+            "values": "10m,1h,1d,7d,21d,30d,90d"
          },
          "verb_excl": {
-            "default": "(CONNECT|WATCH|PROXY)",
+            "default": "CONNECT|WATCH|PROXY",
             "hide": "variable",
-            "values": "(CONNECT|WATCH|PROXY)"
+            "values": "CONNECT|WATCH|PROXY"
          }
       }
    },
@@ -26,7 +33,7 @@
                   "description": "Issue: Kube API is not responding 200s from blackbox.monitoring\nPlaybook: https://engineering-handbook.nami.run/sre/runbooks/kubeapi#KubeAPIUnHealthy\n",
                   "summary": "Kube API is unhealthy"
                },
-               "expr": "probe_success{provider=\"kubernetes\"} == 0\n",
+               "expr": "probe_success{provider=\"kubernetes\"} == 0",
                "for": "5m",
                "labels": {
                   "notify_to": "slack",
@@ -40,7 +47,7 @@
                   "description": "Issue: Kube API Error ratio on {{ $labels.instance }} is above 0.01: {{ $value }}\nPlaybook: https://engineering-handbook.nami.run/sre/runbooks/kubeapi#KubeAPIErrorRatioHigh\n",
                   "summary": "Kube API 500s ratio is High"
                },
-               "expr": "sum by (instance)(\n  rate(apiserver_request_count{verb!~\"(CONNECT|WATCH|PROXY)\", code=~\"5..\"}[5m])\n) /\nsum by (instance)(\n  rate(apiserver_request_count[5m])\n) > 0.01\n",
+               "expr": "sum by (instance)(kubernetes:job_verb_code_instance:apiserver_requests:ratio_rate5m{verb=~\"GET|POST|DELETE|PATCH\", code=~\"5..\"}) > 0.01",
                "for": "5m",
                "labels": {
                   "notify_to": "slack",
@@ -54,7 +61,7 @@
                   "description": "Issue: Kube API Latency on {{ $labels.instance }} is above 200 ms: {{ $value }}\nPlaybook: https://engineering-handbook.nami.run/sre/runbooks/kubeapi#KubeAPILatencyHigh\n",
                   "summary": "Kube API Latency is High"
                },
-               "expr": "histogram_quantile (\n  0.90,\n  sum by (le, instance)(\n    rate(apiserver_request_latencies_bucket{verb!~\"(CONNECT|WATCH|PROXY)\"}[5m])\n  )\n) / 1e3 > 200\n",
+               "expr": "max by (instance)(kubernetes:job_verb_instance:apiserver_latency:pctl90rate5m{verb=~\"GET|POST|DELETE|PATCH\"}) > 200",
                "for": "5m",
                "labels": {
                   "notify_to": "slack",
@@ -64,68 +71,94 @@
                "name": "KubeAPILatencyHigh"
             }
          },
-         "api_percentile": "90",
-         "error_ratio_threshold": 0.01,
          "graphs": {
-            "availability_1": {
-               "format": "percentunit",
+            "aa_availability": {
+               "extra": {
+                  "format": "percentunit",
+                  "legend": {
+                     "rightSide": false
+                  },
+                  "span": 2,
+                  "valueFontSize": "80%"
+               },
                "formula": "sum_over_time(kubernetes::job:slo_kube_api_ok[$availability_span]) / sum_over_time(kubernetes::job:slo_kube_api_sample[$availability_span])\n",
                "legend": "{{ job }}",
-               "span": 2,
                "threshold": "0.99",
-               "title": "SLO: Availaibility over $availability_span",
+               "title": "Availability over $availability_span",
                "type": "singlestat"
             },
-            "availability_2": {
+            "ab_availability": {
+               "extra": {
+                  "decimals": 2,
+                  "format": "s",
+                  "legend": {
+                     "rightSide": false
+                  },
+                  "span": 2,
+                  "valueFontSize": "80%"
+               },
+               "formula": "scalar((sum_over_time(kubernetes::job:slo_kube_api_ok[$availability_span]) / sum_over_time(kubernetes::job:slo_kube_api_sample[$availability_span]) - 0.98999999999999999)) * scalar((time() - timestamp(up{job=\"prometheus\"} offset $availability_span)))\n",
+               "legend": "{{ job }}",
+               "threshold": "0.99",
+               "title": "Budget remaining from $availability_span",
+               "type": "singlestat"
+            },
+            "ac_availability": {
+               "extra": {
+                  "span": 2
+               },
                "formula": "sum_over_time(kubernetes::job:slo_kube_api_ok[10m]) / sum_over_time(kubernetes::job:slo_kube_api_sample[10m])\n",
                "legend": "{{ job }}",
-               "span": 10,
+               "legend_rightSide": false,
                "threshold": "0.99",
                "title": "SLO: Availaibility over 10m"
             },
-            "error_ratio": {
-               "formula": "sum by (verb, code)(\n  rate(apiserver_request_count{verb!~\"$verb_excl\", code=~\"5..\"}[5m])\n) / ignoring(code) group_left\nsum by (verb)(\n  rate(apiserver_request_count[5m])\n)\n",
-               "legend": "{{ verb }} - {{ code }}",
+            "ad_error_ratio": {
+               "extra": {
+                  "span": 6
+               },
+               "formula": "sum by (job, verb, code, instance)(kubernetes:job_verb_code_instance:apiserver_requests:ratio_rate5m{verb!~\"CONNECT|WATCH|PROXY\", code!~\"2..\"})",
+               "legend": "{{ verb }} - {{ code }} - {{ instance }}",
                "threshold": 0.01,
-               "title": "API Error ratio 500s/total (except $verb_excl)"
+               "title": "API non-200s/total ratio (except CONNECT|WATCH|PROXY)"
             },
-            "latency": {
-               "formula": "histogram_quantile (\n  0.$api_percentile,\n  sum by (le, verb)(\n    rate(apiserver_request_latencies_bucket{verb!~\"$verb_excl\"}[5m])\n  )\n) / 1e3 > 0\n",
-               "legend": "{{ verb }}",
+            "ba_req_ratio": {
+               "extra": {
+                  "legend": {
+                     "rightSide": true
+                  }
+               },
+               "formula": "kubernetes::job_verb_code:apiserver_requests:ratio_rate5m",
+               "legend": "{{ verb }} - {{ code }}",
+               "threshold": 1000000000,
+               "title": "API requests ratios"
+            },
+            "ca_latency": {
+               "extra": {
+                  "legend": {
+                     "rightSide": true
+                  }
+               },
+               "formula": "kubernetes:job_verb_instance:apiserver_latency:pctl90rate5m{verb!~\"CONNECT|WATCH|PROXY\"}",
+               "legend": "{{ verb }} - {{ instance }}",
                "threshold": 200,
-               "title": "API $api_percentile-th latency[ms] by verb (except $verb_excl)"
+               "title": "API $api_percentile-th latency[ms] by verb (except CONNECT|WATCH|PROXY)"
             }
          },
-         "latency_threshold": 200,
-         "name": "Kube API",
          "rules": {
-            "error_ratio_job": {
-               "expr": "sum by (job)(\n  kubernetes::job_instance:apiserver_request_errors:ratio_rate5m\n)\n",
+            "latency_job_verb": {
+               "expr": "histogram_quantile (\n  0.90,\n  sum by (le, verb)(\n    rate(apiserver_request_latencies_bucket[5m])\n  )\n) / 1e3 > 0\n",
                "labels": {
                   "job": "kubernetes_api_slo"
                },
-               "record": "kubernetes::job:apiserver_request_errors:ratio_rate5m"
+               "record": "kubernetes:job_verb:apiserver_latency:pctl90rate5m"
             },
-            "error_ratio_job_instance": {
-               "expr": "sum by (job, instance)(\n  rate(apiserver_request_count{verb!~\"(CONNECT|WATCH|PROXY)\", code=~\"5..\"}[5m])\n) /\nsum by (job, instance)(\n  rate(apiserver_request_count[5m])\n)\n",
+            "latency_job_verb_instance": {
+               "expr": "histogram_quantile (\n  0.90,\n  sum by (le, job, verb, instance)(\n    rate(apiserver_request_latencies_bucket[5m])\n  )\n) / 1e3\n",
                "labels": {
                   "job": "kubernetes_api_slo"
                },
-               "record": "kubernetes::job_instance:apiserver_request_errors:ratio_rate5m"
-            },
-            "latency_job": {
-               "expr": "histogram_quantile (\n  0.90,\n  sum by (le, job)(\n    rate(apiserver_request_latencies_bucket{verb!~\"(CONNECT|WATCH|PROXY)\"}[5m])\n  )\n) / 1e3\n",
-               "labels": {
-                  "job": "kubernetes_api_slo"
-               },
-               "record": "kubernetes::job:apiserver_latency:pctl90rate5m"
-            },
-            "latency_job_instance": {
-               "expr": "histogram_quantile (\n  0.90,\n  sum by (le, job, instance)(\n    rate(apiserver_request_latencies_bucket{verb!~\"(CONNECT|WATCH|PROXY)\"}[5m])\n  )\n) / 1e3\n",
-               "labels": {
-                  "job": "kubernetes_api_slo"
-               },
-               "record": "kubernetes::job_instance:apiserver_latency:pctl90rate5m"
+               "record": "kubernetes:job_verb_instance:apiserver_latency:pctl90rate5m"
             },
             "probe_success": {
                "expr": "sum by()(probe_success{provider=\"kubernetes\", component=\"apiserver\"})\n",
@@ -134,22 +167,63 @@
                },
                "record": "kubernetes::job:probe_success"
             },
+            "requests_rate_job_verb_code": {
+               "expr": "sum without (instance)(kubernetes:job_verb_code_instance:apiserver_requests:rate5m)",
+               "labels": {
+                  "job": "kubernetes_api_slo"
+               },
+               "record": "kubernetes::job_verb_code:apiserver_requests:rate5m"
+            },
+            "requests_rate_job_verb_code_instance": {
+               "expr": "sum by (job, verb, code, instance)(rate(apiserver_request_count[5m]))",
+               "labels": {
+                  "job": "kubernetes_api_slo"
+               },
+               "record": "kubernetes:job_verb_code_instance:apiserver_requests:rate5m"
+            },
+            "requests_ratiorate_job_verb_code": {
+               "expr": "sum without (instance)(kubernetes:job_verb_code_instance:apiserver_requests:ratio_rate5m)",
+               "labels": {
+                  "job": "kubernetes_api_slo"
+               },
+               "record": "kubernetes::job_verb_code:apiserver_requests:ratio_rate5m"
+            },
+            "requests_ratiorate_job_verb_code_instance": {
+               "expr": "kubernetes:job_verb_code_instance:apiserver_requests:rate5m / ignoring(verb, code) group_left sum by (job, instance)(kubernetes:job_verb_code_instance:apiserver_requests:rate5m)",
+               "labels": {
+                  "job": "kubernetes_api_slo"
+               },
+               "record": "kubernetes:job_verb_code_instance:apiserver_requests:ratio_rate5m"
+            },
+            "slo_errors_ratiorate_job": {
+               "expr": "sum by (job)(kubernetes:job_verb_code_instance:apiserver_requests:ratio_rate5m{verb=~\"GET|POST|DELETE|PATCH\", code=~\"5..\"})",
+               "labels": {
+                  "job": "kubernetes_api_slo"
+               },
+               "record": "kubernetes:job:apiserver_request_errors:ratio_rate5m"
+            },
+            "slo_latency_job": {
+               "expr": "histogram_quantile (\n  0.90,\n  sum by (le, job)(\n    rate(apiserver_request_latencies_bucket{verb=~\"GET|POST|DELETE|PATCH\"}[5m])\n  )\n) / 1e3\n",
+               "labels": {
+                  "job": "kubernetes_api_slo"
+               },
+               "record": "kubernetes::job:apiserver_latency:pctl90rate5m"
+            },
             "slo_ok": {
-               "expr": "kubernetes::job:apiserver_request_errors:ratio_rate5m < bool 0.01 * kubernetes::job:apiserver_latency:pctl90rate5m < bool 200\n",
+               "expr": "kubernetes:job:apiserver_request_errors:ratio_rate5m < bool 0.01 * kubernetes::job:apiserver_latency:pctl90rate5m < bool 200\n",
                "labels": {
                   "job": "kubernetes_api_slo"
                },
                "record": "kubernetes::job:slo_kube_api_ok"
             },
             "slo_sample": {
-               "expr": "kubernetes::job:apiserver_request_errors:ratio_rate5m < bool Inf * kubernetes::job:apiserver_latency:pctl90rate5m < bool Inf\n",
+               "expr": "kubernetes:job:apiserver_request_errors:ratio_rate5m < bool Inf * kubernetes::job:apiserver_latency:pctl90rate5m < bool Inf\n",
                "labels": {
                   "job": "kubernetes_api_slo"
                },
                "record": "kubernetes::job:slo_kube_api_sample"
             }
-         },
-         "verb_excl": "(CONNECT|WATCH|PROXY)"
+         }
       },
       "kube_control_mgr": {
          "alerts": {
@@ -170,6 +244,11 @@
          },
          "graphs": {
             "work_duration": {
+               "extra": {
+                  "legend": {
+                     "rightSide": true
+                  }
+               },
                "formula": "sum by (instance)(\n  APIServiceRegistrationController_work_duration{quantile=\"0.9\"}\n)\n",
                "legend": "{{ instance }}",
                "threshold": 100,
@@ -200,6 +279,11 @@
          "etcd_latency_threshold": 1000,
          "graphs": {
             "latency": {
+               "extra": {
+                  "legend": {
+                     "rightSide": true
+                  }
+               },
                "formula": "max by (operation, instance)(\n  etcd_request_latencies_summary{job=\"kubernetes_apiservers\",quantile=\"0.9\"}\n)/ 1e3\n",
                "legend": "{{ instance }} - {{ operation }}",
                "threshold": 1000,
@@ -219,5 +303,8 @@
             "slack_channel": "#sre-alerts"
          }
       }
+   },
+   "slo": {
+      "target": 0.98999999999999999
    }
 }

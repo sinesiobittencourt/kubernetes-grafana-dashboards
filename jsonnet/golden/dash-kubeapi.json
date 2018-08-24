@@ -35,6 +35,9 @@
                },
                "id": 2,
                "interval": null,
+               "legend": {
+                  "rightSide": false
+               },
                "links": [ ],
                "mappingType": 1,
                "mappingTypes": [
@@ -79,7 +82,87 @@
                   }
                ],
                "thresholds": "0.99",
-               "title": "SLO: Availaibility over $availability_span",
+               "title": "Availability over $availability_span",
+               "type": "singlestat",
+               "valueFontSize": "80%",
+               "valueMaps": [
+                  {
+                     "op": "=",
+                     "text": "N/A",
+                     "value": "null"
+                  }
+               ],
+               "valueName": "current"
+            },
+            {
+               "cacheTimeout": null,
+               "colorBackground": false,
+               "colorValue": false,
+               "colors": [
+                  "#299c46",
+                  "rgba(237, 129, 40, 0.89)",
+                  "#d44a3a"
+               ],
+               "datasource": "$datasource",
+               "decimals": 2,
+               "format": "s",
+               "gauge": {
+                  "maxValue": 100,
+                  "minValue": 0,
+                  "show": false,
+                  "thresholdLabels": false,
+                  "thresholdMarkers": true
+               },
+               "id": 3,
+               "interval": null,
+               "legend": {
+                  "rightSide": false
+               },
+               "links": [ ],
+               "mappingType": 1,
+               "mappingTypes": [
+                  {
+                     "name": "value to text",
+                     "value": 1
+                  },
+                  {
+                     "name": "range to text",
+                     "value": 2
+                  }
+               ],
+               "maxDataPoints": 100,
+               "nullPointMode": "connected",
+               "nullText": null,
+               "postfix": "",
+               "postfixFontSize": "50%",
+               "prefix": "",
+               "prefixFontSize": "50%",
+               "rangeMaps": [
+                  {
+                     "from": "null",
+                     "text": "N/A",
+                     "to": "null"
+                  }
+               ],
+               "span": 2,
+               "sparkline": {
+                  "fillColor": "rgba(31, 118, 189, 0.18)",
+                  "full": false,
+                  "lineColor": "rgb(31, 120, 193)",
+                  "show": false
+               },
+               "tableColumn": "",
+               "targets": [
+                  {
+                     "datasource": "$datasource",
+                     "expr": "scalar((sum_over_time(kubernetes::job:slo_kube_api_ok[$availability_span]) / sum_over_time(kubernetes::job:slo_kube_api_sample[$availability_span]) - 0.98999999999999999)) * scalar((time() - timestamp(up{job=\"prometheus\"} offset $availability_span)))\n",
+                     "format": "time_series",
+                     "intervalFactor": 2,
+                     "legendFormat": "{{ job }}"
+                  }
+               ],
+               "thresholds": "0.99",
+               "title": "Budget remaining from $availability_span",
                "type": "singlestat",
                "valueFontSize": "80%",
                "valueMaps": [
@@ -98,14 +181,14 @@
                "dashes": false,
                "datasource": "$datasource",
                "fill": 1,
-               "id": 3,
+               "id": 4,
                "legend": {
                   "alignAsTable": true,
                   "avg": true,
                   "current": true,
                   "max": true,
                   "min": false,
-                  "rightSide": true,
+                  "rightSide": false,
                   "show": true,
                   "sort": "max",
                   "sortDesc": true,
@@ -123,7 +206,7 @@
                "repeat": null,
                "seriesOverrides": [ ],
                "spaceLength": 10,
-               "span": 10,
+               "span": 2,
                "stack": false,
                "steppedLine": false,
                "targets": [
@@ -187,14 +270,14 @@
                "dashes": false,
                "datasource": "$datasource",
                "fill": 1,
-               "id": 4,
+               "id": 5,
                "legend": {
                   "alignAsTable": true,
                   "avg": true,
                   "current": true,
                   "max": true,
                   "min": false,
-                  "rightSide": true,
+                  "rightSide": false,
                   "show": true,
                   "sort": "max",
                   "sortDesc": true,
@@ -212,16 +295,16 @@
                "repeat": null,
                "seriesOverrides": [ ],
                "spaceLength": 10,
-               "span": 12,
+               "span": 6,
                "stack": false,
                "steppedLine": false,
                "targets": [
                   {
                      "datasource": "$datasource",
-                     "expr": "sum by (verb, code)(\n  rate(apiserver_request_count{verb!~\"$verb_excl\", code=~\"5..\"}[5m])\n) / ignoring(code) group_left\nsum by (verb)(\n  rate(apiserver_request_count[5m])\n)\n",
+                     "expr": "sum by (job, verb, code, instance)(kubernetes:job_verb_code_instance:apiserver_requests:ratio_rate5m{verb!~\"CONNECT|WATCH|PROXY\", code!~\"2..\"})",
                      "format": "time_series",
                      "intervalFactor": 2,
-                     "legendFormat": "{{ verb }} - {{ code }}",
+                     "legendFormat": "{{ verb }} - {{ code }} - {{ instance }}",
                      "refId": "A"
                   }
                ],
@@ -236,7 +319,7 @@
                ],
                "timeFrom": null,
                "timeShift": null,
-               "title": "API Error ratio 500s/total (except $verb_excl)",
+               "title": "API non-200s/total ratio (except CONNECT|WATCH|PROXY)",
                "tooltip": {
                   "shared": true,
                   "sort": 0,
@@ -276,7 +359,7 @@
                "dashes": false,
                "datasource": "$datasource",
                "fill": 1,
-               "id": 5,
+               "id": 6,
                "legend": {
                   "alignAsTable": true,
                   "avg": true,
@@ -307,10 +390,99 @@
                "targets": [
                   {
                      "datasource": "$datasource",
-                     "expr": "histogram_quantile (\n  0.$api_percentile,\n  sum by (le, verb)(\n    rate(apiserver_request_latencies_bucket{verb!~\"$verb_excl\"}[5m])\n  )\n) / 1e3 > 0\n",
+                     "expr": "kubernetes::job_verb_code:apiserver_requests:ratio_rate5m",
                      "format": "time_series",
                      "intervalFactor": 2,
-                     "legendFormat": "{{ verb }}",
+                     "legendFormat": "{{ verb }} - {{ code }}",
+                     "refId": "A"
+                  }
+               ],
+               "thresholds": [
+                  {
+                     "colorMode": "critical",
+                     "fill": true,
+                     "line": true,
+                     "op": "gt",
+                     "value": 1000000000
+                  }
+               ],
+               "timeFrom": null,
+               "timeShift": null,
+               "title": "API requests ratios",
+               "tooltip": {
+                  "shared": true,
+                  "sort": 0,
+                  "value_type": "individual"
+               },
+               "type": "graph",
+               "xaxis": {
+                  "buckets": null,
+                  "mode": "time",
+                  "name": null,
+                  "show": true,
+                  "values": [ ]
+               },
+               "yaxes": [
+                  {
+                     "format": "short",
+                     "label": null,
+                     "logBase": 1,
+                     "max": null,
+                     "min": null,
+                     "show": true
+                  },
+                  {
+                     "format": "short",
+                     "label": null,
+                     "logBase": 1,
+                     "max": null,
+                     "min": null,
+                     "show": true
+                  }
+               ]
+            },
+            {
+               "aliasColors": { },
+               "bars": false,
+               "dashLength": 10,
+               "dashes": false,
+               "datasource": "$datasource",
+               "fill": 1,
+               "id": 7,
+               "legend": {
+                  "alignAsTable": true,
+                  "avg": true,
+                  "current": true,
+                  "max": true,
+                  "min": false,
+                  "rightSide": true,
+                  "show": true,
+                  "sort": "max",
+                  "sortDesc": true,
+                  "total": false,
+                  "values": true
+               },
+               "lines": true,
+               "linewidth": 1,
+               "links": [ ],
+               "nullPointMode": "null",
+               "percentage": false,
+               "pointradius": 5,
+               "points": false,
+               "renderer": "flot",
+               "repeat": null,
+               "seriesOverrides": [ ],
+               "spaceLength": 10,
+               "span": 12,
+               "stack": false,
+               "steppedLine": false,
+               "targets": [
+                  {
+                     "datasource": "$datasource",
+                     "expr": "kubernetes:job_verb_instance:apiserver_latency:pctl90rate5m{verb!~\"CONNECT|WATCH|PROXY\"}",
+                     "format": "time_series",
+                     "intervalFactor": 2,
+                     "legendFormat": "{{ verb }} - {{ instance }}",
                      "refId": "A"
                   }
                ],
@@ -325,7 +497,7 @@
                ],
                "timeFrom": null,
                "timeShift": null,
-               "title": "API $api_percentile-th latency[ms] by verb (except $verb_excl)",
+               "title": "API $api_percentile-th latency[ms] by verb (except CONNECT|WATCH|PROXY)",
                "tooltip": {
                   "shared": true,
                   "sort": 0,
@@ -379,7 +551,7 @@
                "dashes": false,
                "datasource": "$datasource",
                "fill": 1,
-               "id": 6,
+               "id": 8,
                "legend": {
                   "alignAsTable": true,
                   "avg": true,
@@ -482,7 +654,7 @@
                "dashes": false,
                "datasource": "$datasource",
                "fill": 1,
-               "id": 7,
+               "id": 9,
                "legend": {
                   "alignAsTable": true,
                   "avg": true,
@@ -655,6 +827,10 @@
                   "value": "7d"
                },
                {
+                  "text": "21d",
+                  "value": "21d"
+               },
+               {
                   "text": "30d",
                   "value": "30d"
                },
@@ -663,15 +839,15 @@
                   "value": "90d"
                }
             ],
-            "query": "10m,1h,1d,7d,30d,90d",
+            "query": "10m,1h,1d,7d,21d,30d,90d",
             "refresh": 0,
             "type": "custom"
          },
          {
             "allValue": null,
             "current": {
-               "text": "(CONNECT|WATCH|PROXY)",
-               "value": "(CONNECT|WATCH|PROXY)"
+               "text": "CONNECT|WATCH|PROXY",
+               "value": "CONNECT|WATCH|PROXY"
             },
             "hide": 2,
             "includeAll": false,
@@ -680,11 +856,11 @@
             "name": "verb_excl",
             "options": [
                {
-                  "text": "(CONNECT|WATCH|PROXY)",
-                  "value": "(CONNECT|WATCH|PROXY)"
+                  "text": "CONNECT|WATCH|PROXY",
+                  "value": "CONNECT|WATCH|PROXY"
                }
             ],
-            "query": "(CONNECT|WATCH|PROXY)",
+            "query": "CONNECT|WATCH|PROXY",
             "refresh": 0,
             "type": "custom"
          }
@@ -720,6 +896,6 @@
       ]
    },
    "timezone": "browser",
-   "title": "SLA: Kubernetes API",
+   "title": "SLO: Kubernetes API",
    "version": 0
 }

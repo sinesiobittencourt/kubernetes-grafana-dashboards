@@ -1,5 +1,9 @@
 local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi';
 {
+  // General settings
+  slo: {
+    target: 0.99,
+  },
   prometheus: {
     alerts_common: {
       labels: {
@@ -11,9 +15,13 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
     },
   },
   grafana: {
+    common: {
+      extra+: { legend+: { rightSide: true } },
+    },
     templates_custom: {
       availability_span: {
-        values: '10m,1h,1d,7d,30d,90d',
+        // NOTE: will depend on prometheus retention time
+        values: '10m,1h,1d,7d,21d,30d,90d',
         default: '7d',
         hide: '',
       },
@@ -29,74 +37,112 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
       },
     },
   },
+  // Dictionary with metrics, keyed by service.
+  // In this particular case: kube_api (api itself), kube_control_mgr, kube_etcd
+  // Each metric entry has 3 relevant keys:
+  // - graphs: consumed by dash-kubeapi.jsonnet to produce grafana dashboards (.json)
+  // - rules: consumed by rules-kubeapi.jsonnet to produce prometheus recorded rules (.rules.yml)
+  // - alerts: consumed by alerts-kubeapi.jsonnet to produce prometheus alert rules (.rules.yml)
+  //
+  // Pseudo convention, re: rules prefixes:
+  // 'kubernetes:<...>'  normal recorded rule
+  // 'kubernetes::<...>' ditto above, also intended to be federated, matching '.+::.+' regex
   metrics: {
     kube_api: {
+      // General (opinionated) settings for this metric
       local metric = self,
-      verb_excl: '(CONNECT|WATCH|PROXY)',
-      api_percentile: '90',
-      error_ratio_threshold: 0.01,
-      latency_threshold: 200,
-      name: 'Kube API',
+
+      // We're explicitly excluding these verbs from graphing because they tend to be spiky:
+      // - WATCH: API exported metrics show steady 8secs, guess it's so by implementation
+      // - CONNECT, PROXY: depend on control-plane -> nodes connectivity
+      verb_excl:: 'CONNECT|WATCH|PROXY',
+      verb_slos:: 'GET|POST|DELETE|PATCH',
+      api_percentile:: '90',
+      error_ratio_threshold:: 0.01,
+      latency_threshold:: 200,
+      name:: 'Kube API',
       graphs: {
-        availability_1: {
-          title: 'SLO: Availaibility over $availability_span',
+        // Singlestat showing the service availabilty (%) over selectable $availability_span
+        // (grafana template variable)
+        aa_availability: $.grafana.common {
+          title: 'Availability over $availability_span',
           type: 'singlestat',
-          format: 'percentunit',
-          span: 2,
           legend: '{{ job }}',
           formula: |||
-            sum_over_time(kubernetes::job:slo_kube_api_ok[$availability_span]) / sum_over_time(kubernetes::job:slo_kube_api_sample[$availability_span])
-          |||,
-          threshold: '0.99',
+            sum_over_time(%s[$availability_span]) / sum_over_time(%s[$availability_span])
+          ||| % [metric.rules.slo_ok.record, metric.rules.slo_sample.record],
+          threshold: '%.2f' % $.slo.target,
+          extra: { span: 2, format: 'percentunit', valueFontSize: '80%', legend+: { rightSide: false } },
         },
-        availability_2: {
+        // Singlestat showing time budget remaining from the selected $availability_span
+        ab_availability: $.grafana.common {
+          title: 'Budget remaining from $availability_span',
+          type: 'singlestat',
+          legend: '{{ job }}',
+          // time remaining: (<availability_ratio> - <target>) * <time_period_secs>
+          // <time_period_secs> is calculated as:
+          //    current time() - timestamp(<any_metric offseted by time_period>)
+          formula: |||
+            scalar((sum_over_time(%s[$availability_span]) / sum_over_time(%s[$availability_span]) - %s)) * 
+              scalar((time() - timestamp(up{job="prometheus"} offset $availability_span)))
+          ||| % [
+            metric.rules.slo_ok.record,
+            metric.rules.slo_sample.record,
+            $.slo.target,
+          ],
+          threshold: '%.2f' % $.slo.target,
+          extra: { span: 2, format: 's', decimals: 2, valueFontSize: '80%', legend+: { rightSide: false } },
+        },
+        // Graph showing fixed short-span service availabilty ([10m])
+        ac_availability: $.grafana.common {
           title: 'SLO: Availaibility over 10m',
-          span: 10,
+          legend_rightSide: false,
           legend: '{{ job }}',
           formula: |||
-            sum_over_time(kubernetes::job:slo_kube_api_ok[10m]) / sum_over_time(kubernetes::job:slo_kube_api_sample[10m])
-          |||,
-          threshold: '0.99',
+            sum_over_time(%s[10m]) / sum_over_time(%s[10m])
+          ||| % [metric.rules.slo_ok.record, metric.rules.slo_sample.record],
+          threshold: '%.2f' % $.slo.target,
+          extra: { span: 2 },
         },
-        error_ratio: {
-          title: 'API Error ratio 500s/total (except $verb_excl)',
-          formula: |||
-            sum by (verb, code)(
-              rate(apiserver_request_count{verb!~"$verb_excl", code=~"5.."}[5m])
-            ) / ignoring(code) group_left
-            sum by (verb)(
-              rate(apiserver_request_count[5m])
-            )
-          |||,
-          legend: '{{ verb }} - {{ code }}',
+        // Graph showing 500s except `verb_excl`
+        ad_error_ratio: $.grafana.common {
+          title: 'API non-200s/total ratio (except %s)' % [metric.verb_excl],
+          formula: 'sum by (job, verb, code, instance)(%s{verb!~"%s", code!~"2.."})' % [
+            metric.rules.requests_ratiorate_job_verb_code_instance.record,
+            metric.verb_excl,
+          ],
+          legend: '{{ verb }} - {{ code }} - {{ instance }}',
           threshold: metric.error_ratio_threshold,
+          extra: { span: 6 },
         },
-        latency: {
-          title: 'API $api_percentile-th latency[ms] by verb (except $verb_excl)',
-          formula: |||
-            histogram_quantile (
-              0.$api_percentile,
-              sum by (le, verb)(
-                rate(apiserver_request_latencies_bucket{verb!~"$verb_excl"}[5m])
-              )
-            ) / 1e3 > 0
-          |||,
-          legend: '{{ verb }}',
+        // Graph showing all requests ratios
+        ba_req_ratio: $.grafana.common {
+          title: 'API requests ratios',
+          formula: metric.rules.requests_ratiorate_job_verb_code.record,
+          legend: '{{ verb }} - {{ code }}',
+          threshold: 1e9,
+        },
+        // Graph showing latency except `verb_excl`
+        ca_latency: $.grafana.common {
+          title: 'API $api_percentile-th latency[ms] by verb (except %s)' % [metric.verb_excl],
+          formula: '%s{verb!~"%s"}' % [
+            metric.rules.latency_job_verb_instance.record,
+            metric.verb_excl,
+          ],
+          legend: '{{ verb }} - {{ instance }}',
           threshold: metric.latency_threshold,
         },
       },
       alerts: {
+        // Alert on 500s ratio above chosen `error_ratio_threshold` for `verb_slos`
         error_ratio: $.prometheus.alerts_common {
           local alert = self,
           name: 'KubeAPIErrorRatioHigh',
-          expr: |||
-            sum by (instance)(
-              rate(apiserver_request_count{verb!~"%s", code=~"5.."}[5m])
-            ) /
-            sum by (instance)(
-              rate(apiserver_request_count[5m])
-            ) > %s
-          ||| % [metric.verb_excl, metric.error_ratio_threshold],
+          expr: 'sum by (instance)(%s{verb=~"%s", code=~"5.."}) > %s' % [
+            metric.rules.requests_ratiorate_job_verb_code_instance.record,
+            metric.verb_slos,
+            metric.error_ratio_threshold,
+          ],
           annotations: {
             summary: 'Kube API 500s ratio is High',
             description: |||
@@ -105,17 +151,15 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
             ||| % [metric.error_ratio_threshold, runbook_url, alert.name],
           },
         },
+        // Alert on 500s ratio above chosen `error_ratio_threshold` for `verb_slos`
         latency: $.prometheus.alerts_common {
           local alert = self,
           name: 'KubeAPILatencyHigh',
-          expr: |||
-            histogram_quantile (
-              0.%s,
-              sum by (le, instance)(
-                rate(apiserver_request_latencies_bucket{verb!~"%s"}[5m])
-              )
-            ) / 1e3 > %s
-          ||| % [metric.api_percentile, metric.verb_excl, metric.latency_threshold],
+          expr: 'max by (instance)(%s{verb=~"%s"}) > %s' % [
+            metric.rules.latency_job_verb_instance.record,
+            metric.verb_slos,
+            metric.latency_threshold,
+          ],
           annotations: {
             summary: 'Kube API Latency is High',
             description: |||
@@ -127,9 +171,7 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
         blackbox: $.prometheus.alerts_common {
           local alert = self,
           name: 'KubeAPIUnHealthy',
-          expr: |||
-            probe_success{provider="kubernetes"} == 0
-          |||,
+          expr: 'probe_success{provider="kubernetes"} == 0',
           annotations: {
             summary: 'Kube API is unhealthy',
             description: |||
@@ -139,48 +181,88 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
           },
         },
       },
+      // Recorded rules
       rules: {
         common:: { labels+: { job: 'kubernetes_api_slo' } },
-        error_ratio_job_instance: self.common {
-          record: 'kubernetes::job_instance:apiserver_request_errors:ratio_rate5m',
-          expr: |||
-            sum by (job, instance)(
-              rate(apiserver_request_count{verb!~"%s", code=~"5.."}[5m])
-            ) /
-            sum by (job, instance)(
-              rate(apiserver_request_count[5m])
-            )
-          ||| % [metric.verb_excl],
+        // ### Rates ###
+        // Create several r-rules from rate() over apiserver_request_count,
+        // with different label sets
+
+        // Requests rate by all reasonable labels
+        requests_rate_job_verb_code_instance: self.common {
+          record: 'kubernetes:job_verb_code_instance:apiserver_requests:rate5m',
+          expr: 'sum by (job, verb, code, instance)(rate(apiserver_request_count[5m]))',
         },
-        error_ratio_job: self.common {
-          record: 'kubernetes::job:apiserver_request_errors:ratio_rate5m',
-          expr: |||
-            sum by (job)(
-              kubernetes::job_instance:apiserver_request_errors:ratio_rate5m
-            )
-          |||,
+        // Requests ratio_rate by all reasonable labels
+        requests_ratiorate_job_verb_code_instance: self.common {
+          record: 'kubernetes:job_verb_code_instance:apiserver_requests:ratio_rate5m',
+          expr: '%s / ignoring(verb, code) group_left sum by (job, instance)(%s)' % [
+            metric.rules.requests_rate_job_verb_code_instance.record,
+            metric.rules.requests_rate_job_verb_code_instance.record,
+          ],
         },
-        latency_job_instance: self.common {
-          record: 'kubernetes::job_instance:apiserver_latency:pctl%srate5m' % metric.api_percentile,
+        // Requests rate without instance, intended for federation / LT-storage
+        requests_rate_job_verb_code: self.common {
+          record: 'kubernetes::job_verb_code:apiserver_requests:rate5m',
+          expr: 'sum without (instance)(%s)' % [
+            metric.rules.requests_rate_job_verb_code_instance.record,
+          ],
+        },
+        // Requests ratio_rate without instance, intended for federation / LT-storage
+        requests_ratiorate_job_verb_code: self.common {
+          record: 'kubernetes::job_verb_code:apiserver_requests:ratio_rate5m',
+          expr: 'sum without (instance)(%s)' % [
+            metric.rules.requests_ratiorate_job_verb_code_instance.record,
+          ],
+        },
+        // Useful for SLO and long-term views: job (only for `verb_slos`)
+        slo_errors_ratiorate_job: self.common {
+          record: 'kubernetes:job:apiserver_request_errors:ratio_rate5m',
+          expr: 'sum by (job)(%s{verb=~"%s", code=~"5.."})' % [
+            metric.rules.requests_ratiorate_job_verb_code_instance.record,
+            metric.verb_slos,
+          ],
+        },
+
+        // ### Latency ###
+        // Create several r-rules from histogram_quantile() over  apiserver_request_latencies_bucket
+
+        // Useful for dashboards: job, verb, instance
+        latency_job_verb_instance: self.common {
+          record: 'kubernetes:job_verb_instance:apiserver_latency:pctl%srate5m' % metric.api_percentile,
           expr: |||
             histogram_quantile (
               0.%s,
-              sum by (le, job, instance)(
-                rate(apiserver_request_latencies_bucket{verb!~"%s"}[5m])
+              sum by (le, job, verb, instance)(
+                rate(apiserver_request_latencies_bucket[5m])
               )
             ) / 1e3
-          ||| % [metric.api_percentile, metric.verb_excl],
+          ||| % [metric.api_percentile],
         },
-        latency_job: self.common {
+        // Useful for alerting: job, verb
+        latency_job_verb: self.common {
+          record: 'kubernetes:job_verb:apiserver_latency:pctl%srate5m' % metric.api_percentile,
+          expr: |||
+            histogram_quantile (
+              0.%s,
+              sum by (le, verb)(
+                rate(apiserver_request_latencies_bucket[5m])
+              )
+            ) / 1e3 > 0
+          ||| % [metric.api_percentile],
+        },
+
+        // Useful for SLO and long-term views: job (only for `verb_slos`)
+        slo_latency_job: self.common {
           record: 'kubernetes::job:apiserver_latency:pctl%srate5m' % metric.api_percentile,
           expr: |||
             histogram_quantile (
               0.%s,
               sum by (le, job)(
-                rate(apiserver_request_latencies_bucket{verb!~"%s"}[5m])
+                rate(apiserver_request_latencies_bucket{verb=~"%s"}[5m])
               )
             ) / 1e3
-          ||| % [metric.api_percentile, metric.verb_excl],
+          ||| % [metric.api_percentile, metric.verb_slos],
         },
         probe_success: self.common {
           record: 'kubernetes::job:probe_success',
@@ -191,7 +273,7 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
 
         // SLOs: error ratio and latency below thresholds
         // The purpose of below metrics is to allow answering the question:
-        //   How has this SLO done in the past XXX days ?
+        //   How has this SLO done in the past <N> days ?
         //
         // As prometheus-2.3.x can't do e.g.:
         //   sum_over_time(kubernetes::job:slo_kube_api_ok[30d]) /
@@ -205,15 +287,23 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
         slo_ok: self.common {
           record: 'kubernetes::job:slo_kube_api_ok',
           expr: |||
-            kubernetes::job:apiserver_request_errors:ratio_rate5m < bool %s * kubernetes::job:apiserver_latency:pctl%srate5m < bool %s
-          ||| % [metric.error_ratio_threshold, metric.api_percentile, metric.latency_threshold],
+            %s < bool %s * %s < bool %s
+          ||| % [
+            metric.rules.slo_errors_ratiorate_job.record,
+            metric.error_ratio_threshold,
+            metric.rules.slo_latency_job.record,
+            metric.latency_threshold,
+          ],
         },
         // metric always evaluating to 1 (with same labels as above)
         slo_sample: self.common {
           record: 'kubernetes::job:slo_kube_api_sample',
           expr: |||
-            kubernetes::job:apiserver_request_errors:ratio_rate5m < bool Inf * kubernetes::job:apiserver_latency:pctl%srate5m < bool Inf
-          ||| % [metric.api_percentile],
+            %s < bool Inf * %s < bool Inf
+          ||| % [
+            metric.rules.slo_errors_ratiorate_job.record,
+            metric.rules.slo_latency_job.record,
+          ],
         },
       },
     },
@@ -222,7 +312,7 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
       work_duration_limit: 100,
       name: 'Kube Control Manager',
       graphs: {
-        work_duration: {
+        work_duration: $.grafana.common {
           title: 'Kube Control Manager work duration',
           formula: |||
             sum by (instance)(
@@ -258,7 +348,7 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
       etcd_latency_threshold: 1000,
       name: 'Kube Etcd',
       graphs: {
-        latency: {
+        latency: $.grafana.common {
           title: 'etcd 90th latency[ms] by (operation, instance)',
           formula: |||
             max by (operation, instance)(
