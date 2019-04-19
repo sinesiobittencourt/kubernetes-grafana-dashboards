@@ -855,6 +855,6 @@
     ]
   },
   "timezone": "",
-  "title": "k8s_resource_usage_namespace_pods",
+  "title": "Kubernetes resource usage per namespace and pod",
   "version": 4
 }

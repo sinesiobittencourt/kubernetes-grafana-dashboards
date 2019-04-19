@@ -455,6 +455,6 @@
     ]
   },
   "timezone": "",
-  "title": "Kubernetes resource usage per namespace",
+  "title": "Kubernetes resource usage",
   "version": 2
 }
