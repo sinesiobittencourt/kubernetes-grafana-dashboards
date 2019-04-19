@@ -315,10 +315,6 @@
   "templating": {
     "list": [
       {
-        "current": {
-          "text": "https://prometheus.k.int.bitnami.net",
-          "value": "https://prometheus.k.int.bitnami.net"
-        },
         "hide": 0,
         "label": null,
         "name": "datasource",
