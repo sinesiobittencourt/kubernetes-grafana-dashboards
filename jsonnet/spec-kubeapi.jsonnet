@@ -188,13 +188,13 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
       rules: {
         common:: { labels+: { job: 'kubernetes_api_slo' } },
         // ### Rates ###
-        // Create several r-rules from rate() over apiserver_request_count,
+        // Create several r-rules from rate() over apiserver_request_total,
         // with different label sets
 
         // Requests rate by all reasonable labels
         requests_rate_job_verb_code_instance: self.common {
           record: 'kubernetes:job_verb_code_instance:apiserver_requests:rate5m',
-          expr: 'sum by (job, verb, code, instance)(rate(apiserver_request_count[5m]))',
+          expr: 'sum by (job, verb, code, instance)(rate(apiserver_request_total[5m]))',
         },
         // Requests ratio_rate by all reasonable labels
         requests_ratiorate_job_verb_code_instance: self.common {
@@ -228,7 +228,7 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
         },
 
         // ### Latency ###
-        // Create several r-rules from histogram_quantile() over  apiserver_request_latencies_bucket
+        // Create several r-rules from histogram_quantile() over  apiserver_request_duration_seconds_bucket
 
         // Useful for dashboards: job, verb, instance
         latency_job_verb_instance: self.common {
@@ -237,7 +237,7 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
             histogram_quantile (
               0.%s,
               sum by (le, job, verb, instance)(
-                rate(apiserver_request_latencies_bucket[5m])
+                rate(apiserver_request_duration_seconds_bucket[5m])
               )
             ) / 1e3
           ||| % [$.slo.latency_percentile],
@@ -249,7 +249,7 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
             histogram_quantile (
               0.%s,
               sum by (le, verb)(
-                rate(apiserver_request_latencies_bucket[5m])
+                rate(apiserver_request_duration_seconds_bucket[5m])
               )
             ) / 1e3 > 0
           ||| % [$.slo.latency_percentile],
@@ -262,7 +262,7 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
             histogram_quantile (
               0.%s,
               sum by (le, job)(
-                rate(apiserver_request_latencies_bucket{verb=~"%s"}[5m])
+                rate(apiserver_request_duration_seconds_bucket{verb=~"%s"}[5m])
               )
             ) / 1e3
           ||| % [$.slo.latency_percentile, metric.verb_slos],
