@@ -239,7 +239,7 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
               sum by (le, job, verb, instance)(
                 rate(apiserver_request_duration_seconds_bucket[5m])
               )
-            ) / 1e3
+            )
           ||| % [$.slo.latency_percentile],
         },
         // Useful for alerting: job, verb
@@ -251,7 +251,7 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
               sum by (le, verb)(
                 rate(apiserver_request_duration_seconds_bucket[5m])
               )
-            ) / 1e3 > 0
+            )
           ||| % [$.slo.latency_percentile],
         },
 
@@ -264,7 +264,7 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
               sum by (le, job)(
                 rate(apiserver_request_duration_seconds_bucket{verb=~"%s"}[5m])
               )
-            ) / 1e3
+            )
           ||| % [$.slo.latency_percentile, metric.verb_slos],
         },
         probe_success: self.common {
@@ -319,7 +319,7 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
           title: 'Kube Control Manager work duration',
           formula: |||
             sum by (instance)(
-              APIServiceRegistrationController_work_duration{quantile="0.9"}
+              workqueue_work_duration_seconds_bucket{le="0.1"}
             )
           |||,
           legend: '{{ instance }}',
@@ -332,7 +332,7 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
           name: 'KubeControllerWorkDurationHigh',
           expr: |||
             sum by (instance)(
-              APIServiceRegistrationController_work_duration{quantile="0.9"}
+              workqueue_work_duration_seconds_bucket{le="0.1"}
             ) > %s
           ||| % [metric.work_duration_limit],
           annotations: {
@@ -355,8 +355,8 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
           title: 'etcd 90th latency[ms] by (operation, instance)',
           formula: |||
             max by (operation, instance)(
-              etcd_request_latencies_summary{job="kubernetes_apiservers",quantile="0.9"}
-            )/ 1e3
+              rate(etcd_request_duration_seconds_sum[5m]) / rate(etcd_request_duration_seconds_count[5m])
+            )
           |||,
           legend: '{{ instance }} - {{ operation }}',
           threshold: metric.etcd_latency_threshold,
@@ -367,9 +367,9 @@ local runbook_url = 'https://engineering-handbook.nami.run/sre/runbooks/kubeapi'
           local alert = self,
           name: 'KubeEtcdLatencyHigh',
           expr: |||
-            max by (instance)(
-              etcd_request_latencies_summary{job="kubernetes_apiservers",quantile="0.9"}
-            )/ 1e3 > %s
+            max by (operation, instance)(
+              rate(etcd_request_duration_seconds_sum[5m]) / rate(etcd_request_duration_seconds_count[5m])
+            ) > %s
           ||| % [metric.etcd_latency_threshold],
           annotations: {
             summary: 'Etcd Latency is High',
